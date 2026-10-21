@@ -977,7 +977,7 @@ function processUpdate(update) {
     // Urutan kolom: NO (1), ID Medpart (2), Tgl Masuk (3), Instansi (4), Cp (5), Tgl Upload (6), Bukti (7), Poster (8)
     sheetMp.appendRow([newIdNumber, newId, new Date(), instansiRapi, cpFinal, tglFixed, linkBuktiFinal, ""]); 
     
-    kirimBalasanGanda(chatId, "✅ *DATA MEDIA PARTNER DICATAT!* 💅\n\n*ID Medpart:* " + newId + "\n*Instansi:* " + instansiRapi + "\n*Tanggal Upload:* " + tglFixed + "\n\n_Catatan:_\n1. Jika Link GDrive Bukti Syarat (Follow & Like) sudah dikirim oleh mereka, setor ke AI dengan bilang: *'Ini link bukti syarat buat " + newId + " https://drive...'*.\n2. Jika nanti Poster Final sudah direvisi, upload fotonya lewat *Menu Pekerjaan -> Media Partner -> Update Mediapartner* di DM @MonalissaPR_bot ya!");
+    kirimBalasanGanda(chatId, "✅ *DATA MEDIA PARTNER DICATAT!* 💅\n\n*ID Medpart:* " + newId + "\n*Instansi:* " + instansiRapi + "\n*Tanggal Upload:* " + tglFixed + "\n\n_Catatan:_\n1. Jika Link GDrive Bukti Syarat (Follow & Like) sudah dikirim oleh mereka, setor ke AI dengan bilang: *'Ini link bukti syarat buat " + newId + " https://drive...'*.\n2. Jika nanti Poster Final sudah direvisi, upload fotonya lewat *Menu Pekerjaan -> Media Partner -> Update Mediapartner* di DM @MonalissaPR\\_bot ya!");
     return;
   }
 
@@ -1182,8 +1182,17 @@ function kirimBalasanGanda(chatId, text) {
   }
 }
 
+function escapeMarkdownText(str) {
+  if (str === null || str === undefined) return "";
+  return String(str).replace(/([_*`\[])/g, "\\$1");
+}
+
 function sendMessage(chatId, text, replyMarkup) {
   var url = "https://api.telegram.org/bot" + token + "/sendMessage";
+  if (text) {
+    // Escape underscore pada username bot (@MonalissaPR_bot) agar tidak merusak entitas Markdown Telegram
+    text = String(text).replace(/@MonalissaPR\\_bot/g, "@MonalissaPR_bot").replace(/@MonalissaPR_bot/g, "@MonalissaPR\\_bot");
+  }
   var payload = { "chat_id": String(chatId), "text": text, "parse_mode": "Markdown" };
   if (replyMarkup) {
     payload.reply_markup = replyMarkup;
@@ -1212,6 +1221,9 @@ function sendMessage(chatId, text, replyMarkup) {
 
 function sendPhoto(chatId, photoUrlOrFileId, caption, replyMarkup) {
   var url = "https://api.telegram.org/bot" + token + "/sendPhoto";
+  if (caption) {
+    caption = String(caption).replace(/@MonalissaPR\\_bot/g, "@MonalissaPR_bot").replace(/@MonalissaPR_bot/g, "@MonalissaPR\\_bot");
+  }
   var payload = { "chat_id": String(chatId), "photo": photoUrlOrFileId, "caption": caption, "parse_mode": "Markdown" };
   if (replyMarkup) {
     payload.reply_markup = replyMarkup;
@@ -1302,14 +1314,14 @@ function reminderBelumAdaDelegasi() {
          
          if (selisihHari >= 0) {
             // Sisipkan variabel namaHari tepat sebelum variabel waktu
-            pesan += "🔹 *" + idSurat + "* (" + uk + " - " + kegiatan + ")\n📍 " + namaHari + " " + waktu + " - " + lokasi + "\n\n";
+            pesan += "🔹 *" + idSurat + "* (" + escapeMarkdownText(uk) + " - " + escapeMarkdownText(kegiatan) + ")\n📍 " + namaHari + " " + waktu + " - " + escapeMarkdownText(lokasi) + "\n\n";
          }
       }
     }
   }
   
   if (pesan !== "") {
-    var finalPesan = "🔔 *UNDANGAN KOSONG* 🔔\n\nHalo Tim PR! Undangan berikut masih belum memiliki delegasi:\n\n" + pesan + "Ayo segera ambil slotnya! Silakan daftarkan diri lewat *Menu Pekerjaan -> Ambil Delegasi* di Personal Chat (DM) @MonalissaPR_bot";
+    var finalPesan = "🔔 *UNDANGAN KOSONG* 🔔\n\nHalo Tim PR! Undangan berikut masih belum memiliki delegasi:\n\n" + pesan + "Ayo segera ambil slotnya! Silakan daftarkan diri lewat *Menu Pekerjaan -> Ambil Delegasi* di Personal Chat (DM) @MonalissaPR\\_bot";
     sendMessage(grupChatId, finalPesan);
   }
 }
@@ -1373,12 +1385,12 @@ function reminderDelegasi() {
               var waktuTampil = namaHari + " (" + jam + ":" + menit + " WIB) " + tglFormat + " " + namaBulan;
 
               var infoDelegasi = prosesDelegasiTag(delegasi);
-              var pesanGrup = "⏰ *REMINDER* ⏰\n\n" + labelHari + "\n\nHalo " + infoDelegasi.mentionText + "! Jangan lupa jadwal kegiatan kamu yang semakin dekat:\n\n🔹 *" + kegiatan + "* (" + uk + ")\n📍 " + waktuTampil + " - " + lokasi + "\n\nSemangat bertugas! Setelah kegiatan selesai, jangan lupa unggah foto bukti kehadiran (" + idSurat + ") lewat *Menu Pekerjaan -> Undangan -> Unggah Bukti Kehadiran* di Personal Chat (DM) @MonalissaPR_bot ya! 💅";
+              var pesanGrup = "⏰ *REMINDER* ⏰\n\n" + labelHari + "\n\nHalo " + infoDelegasi.mentionText + "! Jangan lupa jadwal kegiatan kamu yang semakin dekat:\n\n🔹 *" + escapeMarkdownText(kegiatan) + "* (" + escapeMarkdownText(uk) + ")\n📍 " + waktuTampil + " - " + escapeMarkdownText(lokasi) + "\n\nSemangat bertugas! Setelah kegiatan selesai, jangan lupa unggah foto bukti kehadiran (" + idSurat + ") lewat *Menu Pekerjaan -> Undangan -> Unggah Bukti Kehadiran* di Personal Chat (DM) @MonalissaPR\\_bot ya! 💅";
               sendMessage(grupChatId, pesanGrup);
               
               for (var d = 0; d < infoDelegasi.dmList.length; d++) {
                   var userTarget = infoDelegasi.dmList[d];
-                  var pesanDM = "⏰ *REMINDER PERSONAL* ⏰\n\n" + labelHari + "\n\nHalo *" + userTarget.nama + "*! Ini pengingat langsung dari Monalissa untuk kegiatanmu:\n\n🔹 *" + kegiatan + "* (" + uk + ")\n📍 " + waktuTampil + " - " + lokasi + "\n\nSemangat bertugas! Setelah kegiatan selesai, jangan lupa unggah foto bukti kehadiran (" + idSurat + ") lewat *Menu Pekerjaan -> Undangan -> Unggah Bukti Kehadiran* ya! 💅";
+                  var pesanDM = "⏰ *REMINDER PERSONAL* ⏰\n\n" + labelHari + "\n\nHalo *" + escapeMarkdownText(userTarget.nama) + "*! Ini pengingat langsung dari Monalissa untuk kegiatanmu:\n\n🔹 *" + escapeMarkdownText(kegiatan) + "* (" + escapeMarkdownText(uk) + ")\n📍 " + waktuTampil + " - " + escapeMarkdownText(lokasi) + "\n\nSemangat bertugas! Setelah kegiatan selesai, jangan lupa unggah foto bukti kehadiran (" + idSurat + ") lewat *Menu Pekerjaan -> Undangan -> Unggah Bukti Kehadiran* ya! 💅";
                   sendMessage(userTarget.id, pesanDM);
               }
            }
@@ -2221,7 +2233,7 @@ function hapusDelegasiTanpaBukti() {
                     [{ text: "✅ Pertahankan", callback_data: "DEL_NO|" + idSurat }]
                 ];
                 var infoDelegasi = prosesDelegasiTag(delegasi);
-                var pesanPeringatan = "⚠️ *PERINGATAN DELEGASI* ⚠️\n\nUndangan *" + idSurat + "* (" + kegiatan + ") sudah lewat dari 3 hari, tetapi delegasi " + infoDelegasi.mentionText + " belum mengunggah foto bukti kehadiran.\n\nApakah delegasi di atas harus dihapus atau dipertahankan? _(Hanya Admin yang dapat memencet tombol)_";
+                var pesanPeringatan = "⚠️ *PERINGATAN DELEGASI* ⚠️\n\nUndangan *" + idSurat + "* (" + escapeMarkdownText(kegiatan) + ") sudah lewat dari 3 hari, tetapi delegasi " + infoDelegasi.mentionText + " belum mengunggah foto bukti kehadiran.\n\nApakah delegasi di atas harus dihapus atau dipertahankan? _(Hanya Admin yang dapat memencet tombol)_";
                 
                 var url = "https://api.telegram.org/bot" + token + "/sendMessage";
                 var payload = { chat_id: String(grupChatId), text: pesanPeringatan, parse_mode: "Markdown", reply_markup: { inline_keyboard: keyboard } };
@@ -2230,7 +2242,7 @@ function hapusDelegasiTanpaBukti() {
                 // Kirim teguran ke DM masing-masing delegasi
                 for (var d = 0; d < infoDelegasi.dmList.length; d++) {
                    var userTarget = infoDelegasi.dmList[d];
-                   var pesanTeguranDM = "🚨 *TEGURAN DARI MONALISSA* 🚨\n\nHalo *" + userTarget.nama + "*!\n\nKegiatan *" + kegiatan + "* (" + idSurat + ") sudah berlalu lebih dari 3 hari, tapi kamu belum mengunggah foto bukti kehadiran sama sekali.\n\nAyo segera unggah foto bukti kehadiran (" + idSurat + ") lewat *Menu Pekerjaan -> Undangan -> Unggah Bukti Kehadiran* di bot ini (@MonalissaPR_bot). Jika tidak, keikutsertaan delegasimu akan dihapus oleh Admin! 💅";
+                   var pesanTeguranDM = "🚨 *TEGURAN DARI MONALISSA* 🚨\n\nHalo *" + escapeMarkdownText(userTarget.nama) + "*!\n\nKegiatan *" + escapeMarkdownText(kegiatan) + "* (" + idSurat + ") sudah berlalu lebih dari 3 hari, tapi kamu belum mengunggah foto bukti kehadiran sama sekali.\n\nAyo segera unggah foto bukti kehadiran (" + idSurat + ") lewat *Menu Pekerjaan -> Undangan -> Unggah Bukti Kehadiran* di bot ini (@MonalissaPR\\_bot). Jika tidak, keikutsertaan delegasimu akan dihapus oleh Admin! 💅";
                    sendMessage(userTarget.id, pesanTeguranDM);
                 }
              }
@@ -2600,7 +2612,7 @@ function processWizardInput(chatId, userId, text, userMessageId, msg) {
     
     clearWizardMessages(chatId, userId);
 
-    var balasan = "🚨 *UNDANGAN BARU MASUK!* 🚨\n_(via Menu Interaktif 🍀)_\n\n*ID Surat:* " + idSurat + "\n*UK Pengirim:* " + pengirim + "\n*Kegiatan:* " + kegiatan + "\n*Waktu:* " + waktuTampil + "\n*Lokasi:* " + lokasi + "\n\n👥 _Siapa yang bersedia? Silakan daftarkan diri lewat *Menu Pekerjaan -> Ambil Delegasi* di Personal Chat (DM) @MonalissaPR_bot _";
+    var balasan = "🚨 *UNDANGAN BARU MASUK!* 🚨\n_(via Menu Interaktif 🍀)_\n\n*ID Surat:* " + idSurat + "\n*UK Pengirim:* " + pengirim + "\n*Kegiatan:* " + kegiatan + "\n*Waktu:* " + waktuTampil + "\n*Lokasi:* " + lokasi + "\n\n👥 Siapa yang bersedia? Silakan daftarkan diri lewat *Menu Pekerjaan -> Ambil Delegasi* di Personal Chat (DM) @MonalissaPR\\_bot";
     kirimMenuUtama(chatId, balasan);
     
     if (grupChatId && String(chatId) !== String(grupChatId)) {
