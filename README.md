@@ -47,7 +47,7 @@ graph TD
 
 ## 🍀 Navigasi Interaktif: The Clover Menu
 
-Monalissa menerapkan sistem navigasi dua lapis. Tombol **Clover Menu** (`ReplyKeyboardMarkup`) tersemat secara persisten di keyboard Telegram percakapan pribadi (DM) dengan `@MonalissaPR_bot`.
+Monalissa menerapkan sistem navigasi dua lapis. Tombol **Clover Menu** (`ReplyKeyboardMarkup`) tersemat secara persisten di keyboard Telegram percakapan pribadi (DM) dengan `@UKBAPR_Bot`.
 
 ```
 🍀 MENU UTAMA (DM Monalissa)
@@ -153,7 +153,7 @@ Bot berjalan secara otonom menggunakan **Time-Driven Triggers** bawaan Google Ap
 
 | Nama Fungsi Trigger | Jadwal Eksekusi | Deskripsi Tugas |
 | :--- | :--- | :--- |
-| `reminderBelumAdaDelegasi()` | Setiap Hari (07:00 - 08:00 WIB) | Mengingatkan grup tentang undangan H-2 dan H-1 yang belum memiliki delegasi, dilengkapi link shortcut langsung ke DM `@MonalissaPR_bot`. |
+| `reminderBelumAdaDelegasi()` | Setiap Hari (07:00 - 08:00 WIB) | Mengingatkan grup tentang undangan H-2 dan H-1 yang belum memiliki delegasi, dilengkapi link shortcut langsung ke DM `@UKBAPR_Bot`. |
 | `reminderDelegasi()` | Setiap Hari (06:00 - 07:00 WIB) | Mengirimkan reminder jadwal H-1 dan Hari H ke grup serta japri (DM) personal ke masing-masing delegasi yang bertugas. |
 | `hapusDelegasiTanpaBukti()` | Setiap Hari (20:00 - 21:00 WIB) | Mengecek acara H+3 yang belum memiliki foto kehadiran; mengirim teguran ke delegasi & voting konfirmasi ke admin grup. |
 | `reminderMedpart()` | Setiap 3 Hari | Menagih kelengkapan link syarat dan poster media partner yang masih tertunda. |
