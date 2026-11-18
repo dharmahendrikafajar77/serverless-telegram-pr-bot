@@ -5,18 +5,26 @@ var grupChatId = scriptProperties.getProperty('GRUP_CHAT_ID');
 var folderId = scriptProperties.getProperty('FOLDER_ID'); 
 var geminiApiKey = scriptProperties.getProperty('GEMINI_API_KEY'); 
 var webAppUrlProperty = scriptProperties.getProperty('WEBHOOK_URL'); 
+function isRomanNumeral(word) {
+  if (!word || typeof word !== "string") return false;
+  var upper = word.toUpperCase();
+  if (upper === "DI") return false;
+  return /^M{0,4}(CM|CD|D?C{0,4})(XC|XL|L?X{0,4})(IX|IV|V?I{1,4})$/.test(upper);
+}
+
 function smartTitleCase(str) {
-  var acronyms = ["MKU", "PKM", "LP2M", "GOR", "FIP", "FEB", "UNP", "BEM", "UKK", "UKFF", "UPKK", "UKKPK"];
+  if (!str) return "";
+  var acronyms = ["UNP", "BEM", "DPM", "MPM", "UKM", "UKK", "UKFF", "UPKK", "UKKPK", "UKBA", "KSR", "PMI", "PMR", "HMD", "HMJ", "HIMA", "FIP", "FBS", "FMIPA", "FIS", "FT", "FIK", "FEB", "FPP", "FPSD", "MKU", "PKM", "LP2M", "LP3M", "GOR", "BAK", "BUK", "WR", "BAU", "UPT", "KPU", "BAWASLU", "OSIS", "MPK", "IAI", "HMI", "PMII", "KAMMI", "GMNI", "IMM", "DKI", "DIY", "RI", "NKRI", "MOU", "POA", "CP", "LO", "MC"];
   var result = str.toLowerCase().split(/\b/).map(function(word) {
     var upper = word.toUpperCase();
-    if (acronyms.indexOf(upper) !== -1 || upper.match(/^[A-Z]+\d+[A-Z]*$/)) {
+    if (acronyms.indexOf(upper) !== -1 || isRomanNumeral(upper) || upper.match(/^[A-Z]+\d+[A-Z]*$/)) {
        return upper; 
     }
     if (word === "lantai" || word === "lt") return "Lt.";
     return (word.charAt(0).toUpperCase() + word.slice(1));
   }).join('');
   
-  result = result.replace(/,\s*Lt\./g, " Lt.").replace(/\s+/g, " ");
+  result = result.replace(/,\s*Lt\./g, " Lt.").replace(/Lt\.\./g, "Lt.").replace(/\s+/g, " ");
   return result;
 }
 
@@ -41,81 +49,150 @@ function formatBulletPoints(text) {
   return hasil.join("\n");
 }
 
+function parseBulanIndex(blnRaw) {
+  if (blnRaw === null || blnRaw === undefined) return -1;
+  var s = String(blnRaw).trim().toLowerCase();
+  if (!s) return -1;
+  if (/^\d+$/.test(s)) {
+    var n = parseInt(s, 10);
+    return (n >= 1 && n <= 12) ? n - 1 : -1;
+  }
+  var bulanMap = [
+    ["jan"],
+    ["feb", "peb"],
+    ["mar"],
+    ["apr"],
+    ["mei", "may"],
+    ["jun"],
+    ["jul"],
+    ["agu", "ags", "agst", "aug"],
+    ["sep"],
+    ["okt", "oct"],
+    ["nov", "nop"],
+    ["des", "dec"]
+  ];
+  for (var i = 0; i < bulanMap.length; i++) {
+    for (var j = 0; j < bulanMap[i].length; j++) {
+      if (s.indexOf(bulanMap[i][j]) === 0) {
+        return i;
+      }
+    }
+  }
+  return -1;
+}
+
+function serialToUtcDate(val) {
+  if (val === null || val === undefined || val === "") return null;
+  var num = (typeof val === "number") ? val : (/^\d{5}(?:\.\d+)?$/.test(String(val).trim()) ? parseFloat(String(val).trim()) : NaN);
+  if (isNaN(num) || num < 40000 || num > 60000) return null;
+  var d = new Date(Date.UTC(1899, 11, 30) + Math.floor(num) * 86400000);
+  return {
+    day: d.getUTCDate(),
+    monthIndex: d.getUTCMonth(),
+    year: d.getUTCFullYear()
+  };
+}
+
 function formatTanggalInput(text) {
+  var namaHariArr = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+  var namaBulanArr = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+
   if (text instanceof Date) {
       var tglObj = text;
       var tgl = String(tglObj.getDate()).padStart(2, '0');
       var blnIndex = tglObj.getMonth();
       var thn = tglObj.getFullYear();
-      var namaHari = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"][tglObj.getDay()];
-      var namaBulanArr = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
-      return namaHari + ", " + tgl + " " + namaBulanArr[blnIndex] + " " + thn;
+      return namaHariArr[tglObj.getDay()] + ", " + tgl + " " + namaBulanArr[blnIndex] + " " + thn;
   }
 
-  var strText = String(text).trim();
+  var serialInfo = serialToUtcDate(text);
+  if (serialInfo) {
+      var dSerial = new Date(serialInfo.year, serialInfo.monthIndex, serialInfo.day);
+      return namaHariArr[dSerial.getDay()] + ", " + String(serialInfo.day).padStart(2, '0') + " " + namaBulanArr[serialInfo.monthIndex] + " " + serialInfo.year;
+  }
+
+  var strText = String(text === null || text === undefined ? "" : text).trim().replace(/^'/, "");
   var teksLower = strText.toLowerCase();
   if (teksLower === "tba" || teksLower === "❌ belum ada data" || strText === "") return strText;
   
-  var match = strText.match(/^(\d{1,2})[-/\s]+([\w]+)(?:[-/\s]+(\d{2,4}))?/);
+  var match = strText.match(/^(\d{1,2})(?:[-/\s]+|(?=[a-zA-Z]))([a-zA-Z]+|\d{1,2})(?:[-/\s]+(\d{2,4}))?/);
   if (match) {
       var tgl = String(match[1]).padStart(2, '0');
-      var blnRaw = match[2].toLowerCase();
+      var blnIndex = parseBulanIndex(match[2]);
       var thn = match[3] || String(new Date().getFullYear());
       if (thn.length === 2) thn = "20" + thn;
       
-      var namaBulanArr = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
-      var blnIndex = -1;
-      
-      if (!isNaN(parseInt(blnRaw, 10))) {
-         blnIndex = parseInt(blnRaw, 10) - 1;
-      } else {
-         for (var i = 0; i < namaBulanArr.length; i++) {
-            if (namaBulanArr[i].toLowerCase().indexOf(blnRaw) === 0) {
-               blnIndex = i;
-               break;
-            }
-         }
-      }
-      
       if (blnIndex >= 0 && blnIndex <= 11) {
-          var tglObj = new Date(parseInt(thn), blnIndex, parseInt(tgl));
-          var namaHari = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"][tglObj.getDay()];
-          
+          var tglObj = new Date(parseInt(thn, 10), blnIndex, parseInt(tgl, 10));
           var sisa = strText.replace(match[0], "").trim();
-          var hasil = namaHari + ", " + tgl + " " + namaBulanArr[blnIndex] + " " + thn;
+          var hasil = namaHariArr[tglObj.getDay()] + ", " + tgl + " " + namaBulanArr[blnIndex] + " " + thn;
           if (sisa) hasil += " " + sisa;
           return hasil;
       }
   }
   
-  return smartTitleCase(text);
+  return smartTitleCase(strText);
 }
 
 function normalizeTanggalString(text) {
   if (text instanceof Date) {
       return String(text.getDate()).padStart(2, '0') + "/" + String(text.getMonth() + 1).padStart(2, '0');
   }
+
+  var serialInfo = serialToUtcDate(text);
+  if (serialInfo) {
+      return String(serialInfo.day).padStart(2, '0') + "/" + String(serialInfo.monthIndex + 1).padStart(2, '0');
+  }
   
-  var strText = String(text).trim();
-  var match = strText.match(/^(\d{1,2})[-/\s]+([\w]+)(?:[-/\s]+(\d{2,4}))?/);
+  var strText = String(text === null || text === undefined ? "" : text).trim().replace(/^'/, "");
+  var match = strText.match(/^(\d{1,2})(?:[-/\s]+|(?=[a-zA-Z]))([a-zA-Z]+|\d{1,2})(?:[-/\s]+(\d{2,4}))?/);
   if (match) {
       var tgl = String(match[1]).padStart(2, '0');
-      var blnRaw = match[2].toLowerCase();
-      var namaBulanArr = ["jan", "feb", "mar", "apr", "mei", "jun", "jul", "agu", "sep", "okt", "nov", "des"];
-      var blnStr = blnRaw;
-      if (isNaN(parseInt(blnRaw, 10))) {
-          for (var i = 0; i < namaBulanArr.length; i++) {
-              if (blnRaw.indexOf(namaBulanArr[i]) === 0) {
-                  blnStr = String(i + 1).padStart(2, '0');
-                  break;
-              }
-          }
-      } else {
-          blnStr = String(parseInt(blnRaw, 10)).padStart(2, '0');
+      var blnIndex = parseBulanIndex(match[2]);
+      if (blnIndex >= 0 && blnIndex <= 11) {
+          return tgl + "/" + String(blnIndex + 1).padStart(2, '0');
       }
-      return tgl + "/" + blnStr;
   }
-  return text;
+  return strText;
+}
+
+function toPlainTextSheetDate(val) {
+  if (val === null || val === undefined) return "";
+  var normalized = String(normalizeTanggalString(val) || "").trim();
+  if (/^\d{2}\/\d{2}$/.test(normalized)) {
+    return "'" + normalized;
+  }
+  return normalized;
+}
+
+function rapikanKolomTanggalMedpart(sheetMp) {
+  if (!sheetMp) return;
+  var lastRow = sheetMp.getLastRow();
+  if (lastRow < 3) return;
+  var numRows = lastRow - 2;
+  var range = sheetMp.getRange(3, 7, numRows, 1);
+  var values = range.getValues();
+  var formats = range.getNumberFormats();
+  var needsUpdate = false;
+  var cleanValues = [];
+
+  for (var i = 0; i < values.length; i++) {
+    var raw = values[i][0];
+    var fmt = formats[i][0];
+    var cleanStr = "";
+    if (raw !== "" && raw !== null && raw !== undefined) {
+      cleanStr = String(normalizeTanggalString(raw)).trim();
+    }
+    cleanValues.push([cleanStr]);
+    if (fmt !== "@" || typeof raw !== "string" || raw !== cleanStr) {
+      needsUpdate = true;
+    }
+  }
+
+  if (needsUpdate) {
+    range.setNumberFormat("@");
+    range.setValues(cleanValues);
+  }
 }
 
 function simpanFileKeDrive(fileIdTelegram, subFolderName) {
@@ -373,7 +450,7 @@ function processUpdate(update) {
       "🔹 `/f` *(Upload Foto Bukti)*\nKirim foto acara, beri caption: `/f ID_Surat`\n\n" +
       "🔹 `/edit` *(Ubah Data)*\nKetik: `/edit ID_Surat Kolom NilaiBaru`\n_(Kolom: Pengirim/Kegiatan/Waktu/Lokasi)_\n\n" +
       "🔹 `/hapus` *(Hapus Undangan)*\nKetik: `/hapus ID_Surat`\n\n" +
-      "🔹 `/mp` *(Media Partner)*\nKirim foto poster dengan caption formulir:\n`/mp\nInstansi: ...\nTanggal Upload: ...`\n\n" +
+      "🔹 `/mp` *(Media Partner)*\nKetik formulir:\n`/mp\nPengirim: ...\nKegiatan: ...\nTanggal Upload: ...`\n\n" +
       "🔹 `/sp` *(Sponsorship)*\nKetik formulir:\n`/sp\nInstansi: ...\nTanggal: ...\nPersyaratan: ...\nBenefit: ...`\n\n" +
       "🔹 `/pt` *(Partnership)*\nKetik formulir:\n`/pt\nInstansi: ...\nPersyaratan: ...\nBenefit: ...\nMulai: ...\nSelesai: ...`\n\n" +
       "🔹 `/daftar Nama Lengkap`\n_(Wajib! Agar bot bisa kirim pengingat ke DM-mu)_";
@@ -730,7 +807,7 @@ function processUpdate(update) {
      var jenis = "";
      
      if (prefix === "U") { namaSheet = "Undangan"; headerRows = 2; jenis = "Undangan"; }
-     else if (prefix === "M") { namaSheet = "Medpart"; headerRows = 1; jenis = "Media Partner"; }
+     else if (prefix === "M") { namaSheet = "Medpart"; headerRows = 2; jenis = "Media Partner"; }
      else if (prefix === "S") { namaSheet = "Sponsorship"; headerRows = 1; jenis = "Sponsorship"; }
      else if (prefix === "P") { namaSheet = "Partnership"; headerRows = 1; jenis = "Partnership"; }
      else {
@@ -808,17 +885,26 @@ function processUpdate(update) {
             
             if (colIndex === -1) return sendMessage(chatId, "❌ Kolom *" + kolomEdit + "* tidak dikenali. Pilih: Pengirim, Kegiatan, Waktu, Lokasi");
         } else {
-            if (kolomEdit === "instansi") colIndex = 4;
-            else if (kolomEdit === "cp") colIndex = 5;
-            else if (kolomEdit === "tanggal") colIndex = 6; // Tanggal Upload
-            else if (kolomEdit === "bukti") colIndex = 7;
+            if (kolomEdit === "pengirim" || kolomEdit === "instansi") colIndex = 4;
+            else if (kolomEdit === "kegiatan") colIndex = 5;
+            else if (kolomEdit === "bukti" || kolomEdit === "syarat") colIndex = 6;
+            else if (kolomEdit === "tanggal" || kolomEdit === "waktu") colIndex = 7; // Tanggal Upload
             
-            if (colIndex === -1) return sendMessage(chatId, "❌ Kolom *" + kolomEdit + "* tidak dikenali. Pilih: Instansi, Cp, Tanggal, Bukti");
+            if (colIndex === -1) return sendMessage(chatId, "❌ Kolom *" + kolomEdit + "* tidak dikenali. Pilih: Pengirim, Kegiatan, Bukti, Tanggal");
         }
         
-        sheet.getRange(barisDitemukan, colIndex).setValue(nilaiBaru);
+        if (!isMedpart && kolomEdit === "pengirim") nilaiBaru = nilaiBaru.toUpperCase();
+        if (isMedpart && (kolomEdit === "tanggal" || kolomEdit === "waktu")) {
+            nilaiBaru = String(normalizeTanggalString(nilaiBaru)).trim();
+            var cellEdit = sheet.getRange(barisDitemukan, colIndex);
+            cellEdit.setNumberFormat("@");
+            cellEdit.setValue(nilaiBaru);
+            rapikanKolomTanggalMedpart(sheet);
+        } else {
+            sheet.getRange(barisDitemukan, colIndex).setValue(nilaiBaru);
+        }
         var jenis = isMedpart ? "Media Partner" : "surat";
-        kirimBalasanGanda(chatId, "✅ Data " + jenis + " *" + idEdit + "* berhasil diubah!\n\n*Kolom:* " + kolomEdit + "\n*Nilai Baru:* " + nilaiBaru + " 💅");
+        kirimBalasanGanda(chatId, "✅ Data " + jenis + " *" + idEdit + "* berhasil diubah!\n\n*Kolom:* " + kolomEdit + "\n*Nilai Baru:* " + escapeMarkdownText(nilaiBaru) + " 💅");
      } else {
         sendMessage(chatId, "❌ ID *" + idEdit + "* tidak ditemukan.");
      }
@@ -931,8 +1017,8 @@ function processUpdate(update) {
   // FITUR MEDIA PARTNER (/mp) - FORMAT TABEL BARU (8 KOLOM)
   // ==========================================
   if (text.startsWith("/mp")) {
-    var instansi = (text.match(/Instansi:\s*([^\n]+)/i) || [])[1];
-    var cp = (text.match(/Cp:\s*([^\n]+)/i) || text.match(/Contact Person:\s*([^\n]+)/i) || [])[1];
+    var instansi = (text.match(/(?:Pengirim|Instansi):\s*([^\n]+)/i) || [])[1];
+    var kegiatan = (text.match(/(?:Kegiatan|Acara):\s*([^\n]+)/i) || [])[1];
     var waktu = (text.match(/Tanggal Upload:\s*([^\n]+)/i) || 
                  text.match(/Tanggal:\s*([^\n]+)/i) || 
                  text.match(/Waktu:\s*([^\n]+)/i) || [])[1];
@@ -940,16 +1026,14 @@ function processUpdate(update) {
                      text.match(/Bukti:\s*([^\n]+)/i) || [])[1];
 
     if (!instansi) {
-      return sendMessage(chatId, "❌ *Format salah!*\n\nMinimal kamu harus mencantumkan Nama Instansi. Silakan gunakan template ini:\n\n`/mp\nInstansi: \nCp: \nTanggal Upload: \nLink Bukti: `");
+      return sendMessage(chatId, "❌ *Format salah!*\n\nMinimal kamu harus mencantumkan Nama Pengirim/Instansi. Silakan gunakan template ini:\n\n`/mp\nPengirim: \nKegiatan: \nTanggal Upload: \nLink Bukti: `");
     }
     
-    // Jika data tidak ada, isi dengan default text
-    var cpFinal = (cp && cp.trim() !== "") ? cp.trim() : "Menunggu Syarat";
-    var waktuFinal = (waktu && waktu.trim() !== "" && waktu.trim().toLowerCase() !== "menunggu syarat") ? waktu.trim() : "Menunggu Syarat";
-    var linkBuktiFinal = (linkBukti && linkBukti.trim() !== "") ? linkBukti.trim() : "Belum Ada";
-
-    // Gunakan fungsi smartTitleCase agar nama Instansi otomatis rapi!
+    // Gunakan fungsi smartTitleCase agar nama Pengirim dan Kegiatan otomatis rapi
     var instansiRapi = smartTitleCase(instansi);
+    var kegiatanRapi = (kegiatan && kegiatan.trim() !== "" && kegiatan.trim().toLowerCase() !== "menunggu syarat" && kegiatan.trim() !== "❌ Belum ada data") ? smartTitleCase(kegiatan) : "";
+    var waktuFinal = (waktu && waktu.trim() !== "" && waktu.trim().toLowerCase() !== "menunggu syarat" && waktu.trim() !== "❌ Belum ada data") ? waktu.trim() : "Menunggu Syarat";
+    var linkBuktiFinal = (linkBukti && linkBukti.trim() !== "" && linkBukti.trim().toLowerCase() !== "belum ada" && linkBukti.trim() !== "❌ Belum ada data") ? linkBukti.trim() : "";
     
     var sheetMp = SpreadsheetApp.openById(sheetId).getSheetByName("Medpart"); 
     if (!sheetMp) {
@@ -961,23 +1045,29 @@ function processUpdate(update) {
     }
     
     var lastRowMp = sheetMp.getLastRow();
-    
-    // Sistem ID Unik (Baca kolom A/NO atau otomatis +1)
-    var newIdNumber = lastRowMp < 2 ? 1 : lastRowMp; 
-    var newId = "M" + String(newIdNumber).padStart(2, '0');
+    var maxID = 0;
+    if (lastRowMp >= 3) {
+        var dataID = sheetMp.getRange("B3:B" + lastRowMp).getValues();
+        for (var i = 0; i < dataID.length; i++) {
+            var angkaID = parseInt(dataID[i][0].toString().replace("M", ""), 10);
+            if (!isNaN(angkaID) && angkaID > maxID) maxID = angkaID;
+        }
+    }
+    var newId = "M" + String(maxID + 1).padStart(2, '0');
+    var barisTujuan = Math.max(3, lastRowMp + 1);
+    var noUrut = barisTujuan - 2;
+    var waktuDiterima = Utilities.formatDate(new Date(), "Asia/Jakarta", "dd/MM HH:mm") + " WIB";
     
     var tglFixed = waktuFinal;
     if (waktuFinal !== "Menunggu Syarat") {
-        var tglRaw = waktuFinal.split(/[-/]/);
-        if (tglRaw.length >= 2) {
-            tglFixed = (tglRaw[0] ? tglRaw[0].trim().padStart(2, '0') : "01") + "/" + (tglRaw[1] ? tglRaw[1].trim().padStart(2, '0') : "01");
-        }
+        tglFixed = normalizeTanggalString(waktuFinal);
     }
 
-    // Urutan kolom: NO (1), ID Medpart (2), Tgl Masuk (3), Instansi (4), Cp (5), Tgl Upload (6), Bukti (7), Poster (8)
-    sheetMp.appendRow([newIdNumber, newId, new Date(), instansiRapi, cpFinal, tglFixed, linkBuktiFinal, ""]); 
+    // Urutan kolom: NO (1), ID Medpart (2), Waktu Diterima (3), Pengirim (4), Kegiatan (5), Bukti (6), Tanggal Upload (7), Poster Final (8)
+    sheetMp.appendRow([noUrut, newId, waktuDiterima, instansiRapi, kegiatanRapi, linkBuktiFinal, toPlainTextSheetDate(tglFixed), ""]);
+    rapikanKolomTanggalMedpart(sheetMp);
     
-    kirimBalasanGanda(chatId, "✅ *DATA MEDIA PARTNER DICATAT!* 💅\n\n*ID Medpart:* " + newId + "\n*Instansi:* " + instansiRapi + "\n*Tanggal Upload:* " + tglFixed + "\n\n_Catatan:_\n1. Jika Link GDrive Bukti Syarat (Follow & Like) sudah dikirim oleh mereka, setor ke AI dengan bilang: *'Ini link bukti syarat buat " + newId + " https://drive...'*.\n2. Jika nanti Poster Final sudah direvisi, upload fotonya lewat *Menu Pekerjaan -> Media Partner -> Update Mediapartner* di DM @MonalissaPR\\_bot ya!");
+    kirimBalasanGanda(chatId, "✅ *DATA MEDIA PARTNER DICATAT!* 💅\n\n*ID Medpart:* " + newId + "\n*Pengirim:* " + escapeMarkdownText(instansiRapi) + (kegiatanRapi ? "\n*Kegiatan:* " + escapeMarkdownText(kegiatanRapi) : "") + "\n*Tanggal Upload:* " + escapeMarkdownText(String(tglFixed)) + "\n\n_Catatan:_\n1. Jika Link GDrive Bukti Syarat (Follow & Like) sudah dikirim oleh mereka, setor ke AI dengan bilang: *'Ini link bukti syarat buat " + newId + " https://drive...'*.\n2. Jika nanti Poster Final sudah direvisi, upload fotonya lewat *Menu Pekerjaan -> Media Partner -> Update Mediapartner* di DM [Monalissa PR UKBA](https://t.me/UKBAPR_Bot) ya!");
     return;
   }
 
@@ -1187,13 +1277,32 @@ function escapeMarkdownText(str) {
   return String(str).replace(/([_*`\[])/g, "\\$1");
 }
 
+function normalizeBotMentionMarkdown(str) {
+  if (!str) return str;
+  // Normalisasi referensi bot ke link [Monalissa PR UKBA](https://t.me/UKBAPR_Bot) dan amankan @UKBAPR_Bot untuk Markdown
+  return String(str).replace(/@MonalissaPR\\?_bot/gi, "[Monalissa PR UKBA](https://t.me/UKBAPR_Bot)").replace(/@UKBAPR\\_Bot/gi, "@UKBAPR_Bot").replace(/@UKBAPR_Bot/gi, "@UKBAPR\\_Bot");
+}
+
+function buildMedpartEditKeyboard(idMp, backCallback) {
+  return {
+    inline_keyboard: [
+      [{ text: "🏢 Pengirim / Instansi", callback_data: "MEDPART_SET|INSTANSI|" + idMp }],
+      [{ text: "📝 Nama Kegiatan", callback_data: "MEDPART_SET|KEGIATAN|" + idMp }],
+      [{ text: "🔗 Syarat (Link Bukti)", callback_data: "MEDPART_SET|SYARAT|" + idMp }],
+      [{ text: "🖼️ Poster Final (Foto)", callback_data: "MEDPART_SET|POSTER|" + idMp }],
+      [{ text: "🗓️ Tanggal Upload", callback_data: "MEDPART_SET|TGL|" + idMp }],
+      [{ text: "🔙 Batal", callback_data: backCallback }]
+    ]
+  };
+}
+
 function sendMessage(chatId, text, replyMarkup) {
   var url = "https://api.telegram.org/bot" + token + "/sendMessage";
   if (text) {
-    // Escape underscore pada username bot (@MonalissaPR_bot) agar tidak merusak entitas Markdown Telegram
-    text = String(text).replace(/@MonalissaPR\\_bot/g, "@MonalissaPR_bot").replace(/@MonalissaPR_bot/g, "@MonalissaPR\\_bot");
+    // Normalisasi referensi/mention bot agar selalu aman dalam Markdown Telegram
+    text = normalizeBotMentionMarkdown(text);
   }
-  var payload = { "chat_id": String(chatId), "text": text, "parse_mode": "Markdown" };
+  var payload = { "chat_id": String(chatId), "text": text, "parse_mode": "Markdown", "disable_web_page_preview": true };
   if (replyMarkup) {
     payload.reply_markup = replyMarkup;
   }
@@ -1222,7 +1331,7 @@ function sendMessage(chatId, text, replyMarkup) {
 function sendPhoto(chatId, photoUrlOrFileId, caption, replyMarkup) {
   var url = "https://api.telegram.org/bot" + token + "/sendPhoto";
   if (caption) {
-    caption = String(caption).replace(/@MonalissaPR\\_bot/g, "@MonalissaPR_bot").replace(/@MonalissaPR_bot/g, "@MonalissaPR\\_bot");
+    caption = normalizeBotMentionMarkdown(caption);
   }
   var payload = { "chat_id": String(chatId), "photo": photoUrlOrFileId, "caption": caption, "parse_mode": "Markdown" };
   if (replyMarkup) {
@@ -1321,7 +1430,7 @@ function reminderBelumAdaDelegasi() {
   }
   
   if (pesan !== "") {
-    var finalPesan = "🔔 *UNDANGAN KOSONG* 🔔\n\nHalo Tim PR! Undangan berikut masih belum memiliki delegasi:\n\n" + pesan + "Ayo segera ambil slotnya! Silakan daftarkan diri lewat *Menu Pekerjaan -> Ambil Delegasi* di Personal Chat (DM) @MonalissaPR\\_bot";
+    var finalPesan = "🔔 *UNDANGAN KOSONG* 🔔\n\nHalo Tim PR! Undangan berikut masih belum memiliki delegasi:\n\n" + pesan + "Ayo segera ambil slotnya! Silakan daftarkan diri lewat *Menu Pekerjaan -> Ambil Delegasi* di Personal Chat (DM) [Monalissa PR UKBA](https://t.me/UKBAPR_Bot)";
     sendMessage(grupChatId, finalPesan);
   }
 }
@@ -1385,7 +1494,7 @@ function reminderDelegasi() {
               var waktuTampil = namaHari + " (" + jam + ":" + menit + " WIB) " + tglFormat + " " + namaBulan;
 
               var infoDelegasi = prosesDelegasiTag(delegasi);
-              var pesanGrup = "⏰ *REMINDER* ⏰\n\n" + labelHari + "\n\nHalo " + infoDelegasi.mentionText + "! Jangan lupa jadwal kegiatan kamu yang semakin dekat:\n\n🔹 *" + escapeMarkdownText(kegiatan) + "* (" + escapeMarkdownText(uk) + ")\n📍 " + waktuTampil + " - " + escapeMarkdownText(lokasi) + "\n\nSemangat bertugas! Setelah kegiatan selesai, jangan lupa unggah foto bukti kehadiran (" + idSurat + ") lewat *Menu Pekerjaan -> Undangan -> Unggah Bukti Kehadiran* di Personal Chat (DM) @MonalissaPR\\_bot ya! 💅";
+              var pesanGrup = "⏰ *REMINDER* ⏰\n\n" + labelHari + "\n\nHalo " + infoDelegasi.mentionText + "! Jangan lupa jadwal kegiatan kamu yang semakin dekat:\n\n🔹 *" + escapeMarkdownText(kegiatan) + "* (" + escapeMarkdownText(uk) + ")\n📍 " + waktuTampil + " - " + escapeMarkdownText(lokasi) + "\n\nSemangat bertugas! Setelah kegiatan selesai, jangan lupa unggah foto bukti kehadiran (" + idSurat + ") lewat *Menu Pekerjaan -> Undangan -> Unggah Bukti Kehadiran* di Personal Chat (DM) [Monalissa PR UKBA](https://t.me/UKBAPR_Bot) ya! 💅";
               sendMessage(grupChatId, pesanGrup);
               
               for (var d = 0; d < infoDelegasi.dmList.length; d++) {
@@ -1556,7 +1665,12 @@ function handleCallback(callbackQuery) {
      var instansi = "";
      
      for (var i = 0; i < dataAll.length; i++) {
-        if (dataAll[i][0] === idMp) { barisDitemukan = i + 1; instansi = dataAll[i][1]; break; }
+        if (dataAll[i][1] === idMp) {
+            barisDitemukan = i + 1;
+            var kegMp = dataAll[i][4] ? String(dataAll[i][4]).trim() : "";
+            instansi = escapeMarkdownText(kegMp ? (String(dataAll[i][3] || "") + " - " + kegMp) : String(dataAll[i][3] || ""));
+            break;
+        }
      }
      
      if (barisDitemukan !== -1) {
@@ -1584,7 +1698,7 @@ function handleCallback(callbackQuery) {
            };
            UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/editMessageText", { method: "post", contentType: "application/json", payload: JSON.stringify(payloadEdit) });
         } else if (action === "DELMP_NO") {
-           sheetMp.getRange(barisDitemukan, 6).setValue(new Date()); 
+           sheetMp.getRange(barisDitemukan, 3).setValue(Utilities.formatDate(new Date(), "Asia/Jakarta", "dd/MM HH:mm") + " WIB");
            var payloadEdit = {
                chat_id: String(chatId),
                message_id: messageId,
@@ -1611,7 +1725,7 @@ function handleCallback(callbackQuery) {
   }
 
   if (action === "MENU_INPUT_MEDPART") {
-    var textBaru = "Siyapp! Mari kita input Medpart. ✍️\n\nApa *Nama Instansi/Organisasi* pengaju Medpart?";
+    var textBaru = "Siyapp! Mari kita input Medpart. ✍️\n\nApa *Nama Pengirim / Instansi* pengaju Medpart?\n_(Contoh: Pildubes Sumbar, Temankita Leadership Summit)_";
     var keyboard = { "inline_keyboard": [[{"text": "🔙 Batal", "callback_data": "NAV_PEKERJAAN_MEDPART"}]] };
     UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/editMessageText", { method: "post", contentType: "application/json", payload: JSON.stringify({ chat_id: String(chatId), message_id: messageId, text: textBaru, parse_mode: "Markdown", reply_markup: keyboard }), muteHttpExceptions: true });
     
@@ -1679,12 +1793,7 @@ function handleCallback(callbackQuery) {
   if (action === "MEDPART_EDIT") {
      var idMp = parts[1];
      var textBaru = "⚙️ *Edit Media Partner " + idMp + "*\n\nBagian mana yang ingin kamu lengkapi atau ubah?";
-     var keyboard = { inline_keyboard: [
-         [{ text: "🔗 Syarat (Link Bukti)", callback_data: "MEDPART_SET|SYARAT|" + idMp }],
-         [{ text: "🖼️ Poster Final (Foto)", callback_data: "MEDPART_SET|POSTER|" + idMp }],
-         [{ text: "🗓️ Tanggal Upload", callback_data: "MEDPART_SET|TGL|" + idMp }],
-         [{ text: "🔙 Batal", callback_data: "ACTION_INFO|medpart" }]
-     ]};
+     var keyboard = buildMedpartEditKeyboard(idMp, "ACTION_INFO|medpart");
      UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/editMessageText", { method: "post", contentType: "application/json", payload: JSON.stringify({ chat_id: String(chatId), message_id: messageId, text: textBaru, parse_mode: "Markdown", reply_markup: keyboard }), muteHttpExceptions: true });
      return UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/answerCallbackQuery?callback_query_id=" + callbackQuery.id);
   }
@@ -1696,8 +1805,14 @@ function handleCallback(callbackQuery) {
      var textBaru = "";
      var state = "";
      
-     if (field === "SYARAT") {
-        textBaru = "🔗 Silakan kirimkan *Link Google Drive* (atau teks bukti) untuk syarat " + idMp + ".";
+     if (field === "INSTANSI") {
+        textBaru = "🏢 Silakan ketik *Nama Pengirim / Instansi* baru untuk " + idMp + ".";
+        state = "EDIT_MP_INSTANSI|" + idMp;
+     } else if (field === "KEGIATAN") {
+        textBaru = "📝 Silakan ketik *Nama Kegiatan* baru untuk " + idMp + ".";
+        state = "EDIT_MP_KEGIATAN|" + idMp;
+     } else if (field === "SYARAT") {
+        textBaru = "🔗 Silakan kirimkan *Link Google Drive* atau *Foto/Dokumen Bukti* syarat untuk " + idMp + ".";
         state = "EDIT_MP_SYARAT|" + idMp;
      } else if (field === "POSTER") {
         textBaru = "🖼️ Silakan kirimkan *Foto Poster Final* untuk " + idMp + " (Wajib berupa gambar ya!).";
@@ -1877,7 +1992,7 @@ function handleCallback(callbackQuery) {
       var prefix = "";
       
       if (modul === "UNDANGAN") { namaSheet = "Undangan"; headerRows = 2; prefix = "U"; }
-      else if (modul === "MEDPART") { namaSheet = "Medpart"; headerRows = 1; prefix = "M"; }
+      else if (modul === "MEDPART") { namaSheet = "Medpart"; headerRows = 2; prefix = "M"; }
       else if (modul === "SPONSOR") { namaSheet = "Sponsorship"; headerRows = 1; prefix = "S"; } 
       else if (modul === "PARTNER") { namaSheet = "Partnership"; headerRows = 1; prefix = "P"; }
       
@@ -2242,7 +2357,7 @@ function hapusDelegasiTanpaBukti() {
                 // Kirim teguran ke DM masing-masing delegasi
                 for (var d = 0; d < infoDelegasi.dmList.length; d++) {
                    var userTarget = infoDelegasi.dmList[d];
-                   var pesanTeguranDM = "🚨 *TEGURAN DARI MONALISSA* 🚨\n\nHalo *" + escapeMarkdownText(userTarget.nama) + "*!\n\nKegiatan *" + escapeMarkdownText(kegiatan) + "* (" + idSurat + ") sudah berlalu lebih dari 3 hari, tapi kamu belum mengunggah foto bukti kehadiran sama sekali.\n\nAyo segera unggah foto bukti kehadiran (" + idSurat + ") lewat *Menu Pekerjaan -> Undangan -> Unggah Bukti Kehadiran* di bot ini (@MonalissaPR\\_bot). Jika tidak, keikutsertaan delegasimu akan dihapus oleh Admin! 💅";
+                   var pesanTeguranDM = "🚨 *TEGURAN DARI MONALISSA* 🚨\n\nHalo *" + escapeMarkdownText(userTarget.nama) + "*!\n\nKegiatan *" + escapeMarkdownText(kegiatan) + "* (" + idSurat + ") sudah berlalu lebih dari 3 hari, tapi kamu belum mengunggah foto bukti kehadiran sama sekali.\n\nAyo segera unggah foto bukti kehadiran (" + idSurat + ") lewat *Menu Pekerjaan -> Undangan -> Unggah Bukti Kehadiran* di bot ini ([Monalissa PR UKBA](https://t.me/UKBAPR_Bot)). Jika tidak, keikutsertaan delegasimu akan dihapus oleh Admin! 💅";
                    sendMessage(userTarget.id, pesanTeguranDM);
                 }
              }
@@ -2263,23 +2378,35 @@ function reminderMedpart() {
   var listBelumSyarat = [];
   var listBelumPoster = [];
   
-  for (var i = 1; i < data.length; i++) {
-    // Mapping ke tabel 8 kolom: NO(0), ID(1), TglMasuk(2), Instansi(3), Cp(4), TglUpload(5), Bukti(6), Poster(7)
+  for (var i = 2; i < data.length; i++) {
+    // Mapping ke tabel 8 kolom baru: NO(0), ID(1), WaktuDiterima(2), Pengirim(3), Kegiatan(4), Bukti(5), TglUpload(6), PosterFinal(7)
     var idMp = data[i][1];
     var tglMasuk = data[i][2];
     var instansi = data[i][3];
-    var cp = data[i][4];
-    var tglUpload = String(data[i][5] || "").trim();
-    var bukti = String(data[i][6] || "").trim();
+    var kegiatan = data[i][4] ? String(data[i][4]).trim() : "";
+    var bukti = String(data[i][5] || "").trim();
+    var tglUpload = String(data[i][6] || "").trim();
     var poster = String(data[i][7] || "").trim();
     
     if (!idMp || !instansi) continue;
     
-    var tglMulai = (tglMasuk instanceof Date) ? new Date(tglMasuk.getTime()) : new Date(); 
+    var labelMp = kegiatan ? (instansi + " - " + kegiatan) : String(instansi);
+    var tglMulai;
+    if (tglMasuk instanceof Date) {
+      tglMulai = new Date(tglMasuk.getTime());
+    } else {
+      var tglStr = String(tglMasuk || "").trim().split(" ")[0];
+      var dParts = tglStr.split(/[-/]/);
+      if (dParts.length >= 2 && !isNaN(parseInt(dParts[0], 10)) && !isNaN(parseInt(dParts[1], 10))) {
+        tglMulai = new Date(hariIni.getFullYear(), parseInt(dParts[1], 10) - 1, parseInt(dParts[0], 10));
+      } else {
+        tglMulai = new Date(hariIni.getTime());
+      }
+    }
     tglMulai.setHours(0,0,0,0);
     var selisihHari = Math.floor((hariIni.getTime() - tglMulai.getTime()) / (1000 * 3600 * 24));
     
-    var syaratKosong = (bukti === "" || bukti.toLowerCase() === "belum ada" || bukti.toLowerCase() === "menunggu syarat");
+    var syaratKosong = (bukti === "" || bukti.toLowerCase() === "belum ada" || bukti.toLowerCase() === "menunggu syarat" || bukti === "❌ Belum ada data");
     var posterKosong = (poster === "");
     var tglKosong = (tglUpload === "" || tglUpload.toLowerCase() === "menunggu syarat");
 
@@ -2289,12 +2416,12 @@ function reminderMedpart() {
             [{ text: "❌ Hapus Medpart", callback_data: "DELMP_YES|" + idMp }],
             [{ text: "✅ Tahan Sementara", callback_data: "DELMP_NO|" + idMp }]
         ];
-        var pesanHapus = "🚨 *PERINGATAN KRITIS MEDPART* 🚨\n\nInstansi *" + instansi + "* (" + idMp + ") sepertinya *ghosting*!\n\n*Alasan:* Syarat (Link Bukti) sama sekali tidak dipenuhi selama lebih dari 14 hari sejak mendaftar.\n\nApakah antrean Medpart ini harus dihapus dari database? _(Hanya Admin)_";
+        var pesanHapus = "🚨 *PERINGATAN KRITIS MEDPART* 🚨\n\nInstansi *" + escapeMarkdownText(labelMp) + "* (" + idMp + ") sepertinya *ghosting*!\n\n*Alasan:* Syarat (Link Bukti) sama sekali tidak dipenuhi selama lebih dari 14 hari sejak mendaftar.\n\nApakah antrean Medpart ini harus dihapus dari database? _(Hanya Admin)_";
         var url = "https://api.telegram.org/bot" + token + "/sendMessage";
         var payload = { chat_id: String(grupChatId), text: pesanHapus, parse_mode: "Markdown", reply_markup: { inline_keyboard: keyboard } };
         UrlFetchApp.fetch(url, { method: "post", contentType: "application/json", payload: JSON.stringify(payload) });
       } else {
-        listBelumSyarat.push("🔹 *" + idMp + "* - " + instansi + " (H+" + selisihHari + ")");
+        listBelumSyarat.push("🔹 *" + idMp + "* - " + escapeMarkdownText(labelMp) + " (H+" + selisihHari + ")");
       }
     } else if (posterKosong || tglKosong) {
       if (selisihHari > 17) {
@@ -2302,12 +2429,12 @@ function reminderMedpart() {
             [{ text: "❌ Batalkan Medpart", callback_data: "DELMP_YES|" + idMp }],
             [{ text: "✅ Tetap Proses", callback_data: "DELMP_NO|" + idMp }]
         ];
-        var pesanHapus = "⚠️ *KONFIRMASI MEDPART TERTUNDA* ⚠️\n\nInstansi *" + instansi + "* (" + idMp + ") sudah memenuhi syarat, tapi sudah " + selisihHari + " hari Poster Final belum juga dikirim.\n\nKarena syarat sudah terpenuhi, slot ini tidak dihapus otomatis. Apakah kalian masih ingin memproses instansi ini? _(Hanya Admin)_";
+        var pesanHapus = "⚠️ *KONFIRMASI MEDPART TERTUNDA* ⚠️\n\nInstansi *" + escapeMarkdownText(labelMp) + "* (" + idMp + ") sudah memenuhi syarat, tapi sudah " + selisihHari + " hari Poster Final belum juga dikirim.\n\nKarena syarat sudah terpenuhi, slot ini tidak dihapus otomatis. Apakah kalian masih ingin memproses instansi ini? _(Hanya Admin)_";
         var url = "https://api.telegram.org/bot" + token + "/sendMessage";
         var payload = { chat_id: String(grupChatId), text: pesanHapus, parse_mode: "Markdown", reply_markup: { inline_keyboard: keyboard } };
         UrlFetchApp.fetch(url, { method: "post", contentType: "application/json", payload: JSON.stringify(payload) });
       } else {
-        listBelumPoster.push("🔹 *" + idMp + "* - " + instansi + " (H+" + selisihHari + ")");
+        listBelumPoster.push("🔹 *" + idMp + "* - " + escapeMarkdownText(labelMp) + " (H+" + selisihHari + ")");
       }
     }
   }
@@ -2335,9 +2462,9 @@ function extractUndanganWithGemini(textInput) {
                "2. Ambil Delegasi: /a ID_Surat Nama_Kamu\n" +
                "3. Batal Delegasi: /tarik ID_Surat Nama_Kamu\n" +
                "4. Hapus Surat: /hapus ID_Surat\n" +
-               "5. Edit Data Undangan/Medpart: /edit ID Kolom NilaiBaru (Kolom Undangan: Pengirim/Kegiatan/Waktu/Lokasi | Kolom Medpart: Instansi/Cp/Tanggal/Bukti)\n" +
+               "5. Edit Data Undangan/Medpart: /edit ID Kolom NilaiBaru (Kolom Undangan: Pengirim/Kegiatan/Waktu/Lokasi | Kolom Medpart: Pengirim/Kegiatan/Bukti/Tanggal)\n" +
                "6. Upload Foto Bukti: /f ID_Surat\n" +
-               "7. Input Media Partner: /mp\\nInstansi: NamaInstansi\\nCp: NamaAtauNomor\\nTanggal Upload: DD/MM\\nLink Bukti: LinkGDrive\n" +
+               "7. Input Media Partner: /mp\\nPengirim: NamaInstansi\\nKegiatan: NamaKegiatan\\nTanggal Upload: DD/MM\\nLink Bukti: LinkGDrive\n" +
                "8. Input Sponsorship: /sp\\nInstansi: NamaInstansi\\nTanggal: DD/MM\\nPersyaratan: Syarat1, Syarat2\\nBenefit: Benefit1\n" +
                "9. Input Partnership: /pt\\nInstansi: NamaInstansi\\nPersyaratan: Syarat1\\nBenefit: Benefit1\\nMulai: DD/MM\\nSelesai: DD/MM\n" +
                "10. Upload Poster Media Partner: /fmp ID_Medpart\n" +
@@ -2612,7 +2739,7 @@ function processWizardInput(chatId, userId, text, userMessageId, msg) {
     
     clearWizardMessages(chatId, userId);
 
-    var balasan = "🚨 *UNDANGAN BARU MASUK!* 🚨\n_(via Menu Interaktif 🍀)_\n\n*ID Surat:* " + idSurat + "\n*UK Pengirim:* " + pengirim + "\n*Kegiatan:* " + kegiatan + "\n*Waktu:* " + waktuTampil + "\n*Lokasi:* " + lokasi + "\n\n👥 Siapa yang bersedia? Silakan daftarkan diri lewat *Menu Pekerjaan -> Ambil Delegasi* di Personal Chat (DM) @MonalissaPR\\_bot";
+    var balasan = "🚨 *UNDANGAN BARU MASUK!* 🚨\n_(via Menu Interaktif 🍀)_\n\n*ID Surat:* " + idSurat + "\n*UK Pengirim:* " + pengirim + "\n*Kegiatan:* " + kegiatan + "\n*Waktu:* " + waktuTampil + "\n*Lokasi:* " + lokasi + "\n\n👥 Siapa yang bersedia? Silakan daftarkan diri lewat *Menu Pekerjaan -> Ambil Delegasi* di Personal Chat (DM) [Monalissa PR UKBA](https://t.me/UKBAPR_Bot)";
     kirimMenuUtama(chatId, balasan);
     
     if (grupChatId && String(chatId) !== String(grupChatId)) {
@@ -2627,7 +2754,16 @@ function processWizardInput(chatId, userId, text, userMessageId, msg) {
   if (userState === "MEDPART_INSTANSI") {
      var instansi = smartTitleCase(text);
      cache.put("WIZ_MP_INSTANSI_" + userId, instansi, 600);
-     var botMsgId = sendMessage(chatId, "✅ Instansi: *" + instansi + "*\n\nKapan *Tanggal Upload* poster yang diinginkan?\n_(Contoh: 12/12 atau 12 Desember 2026)_");
+     var botMsgId = sendMessage(chatId, "✅ Pengirim/Instansi: *" + escapeMarkdownText(instansi) + "*\n\nApa *Nama Kegiatan* dari Media Partner tersebut?\n_(Contoh: Pemilihan Duta Bahasa Sumbar Tahun 2026)_");
+     trackMsg(userId, botMsgId);
+     cache.put("WIZ_STATE_" + userId, "MEDPART_KEGIATAN", 600);
+     return true;
+  }
+
+  if (userState === "MEDPART_KEGIATAN") {
+     var kegiatan = smartTitleCase(text);
+     cache.put("WIZ_MP_KEGIATAN_" + userId, kegiatan, 600);
+     var botMsgId = sendMessage(chatId, "✅ Kegiatan: *" + escapeMarkdownText(kegiatan) + "*\n\nKapan *Tanggal Upload* poster yang diinginkan?\n_(Contoh: 12/12 atau 12 Desember 2026)_");
      trackMsg(userId, botMsgId);
      cache.put("WIZ_STATE_" + userId, "MEDPART_TGL", 600);
      return true;
@@ -2659,20 +2795,25 @@ function processWizardInput(chatId, userId, text, userMessageId, msg) {
      }
 
      var instansi = cache.get("WIZ_MP_INSTANSI_" + userId) || "";
+     var kegiatan = cache.get("WIZ_MP_KEGIATAN_" + userId) || "";
      var tglUpload = cache.get("WIZ_MP_TGL_" + userId) || "";
      var bukti = fileLink;
+     var buktiSheet = (bukti === "❌ Belum ada data") ? "" : bukti;
      
      cache.remove("WIZ_STATE_" + userId);
+     cache.remove("WIZ_MP_INSTANSI_" + userId);
+     cache.remove("WIZ_MP_KEGIATAN_" + userId);
+     cache.remove("WIZ_MP_TGL_" + userId);
      
      var sheet = SpreadsheetApp.openById(sheetId).getSheetByName("Medpart");
      if(!sheet) sheet = SpreadsheetApp.openById(sheetId).getSheetByName("Media Partner");
      
      var maxID = 0;
-     if(sheet) {
-        var dataID = sheet.getRange("B2:B" + sheet.getLastRow()).getValues();
+     if (sheet && sheet.getLastRow() >= 3) {
+        var dataID = sheet.getRange("B3:B" + sheet.getLastRow()).getValues();
         for (var i = 0; i < dataID.length; i++) {
           var idSekarang = dataID[i][0].toString().replace("M", "");
-          var angkaID = parseInt(idSekarang);
+          var angkaID = parseInt(idSekarang, 10);
           if (!isNaN(angkaID) && angkaID > maxID) maxID = angkaID;
         }
      }
@@ -2681,13 +2822,14 @@ function processWizardInput(chatId, userId, text, userMessageId, msg) {
      var waktuDiterima = Utilities.formatDate(now, "Asia/Jakarta", "dd/MM HH:mm") + " WIB";
      
      if(sheet) {
-        var barisTujuan = sheet.getLastRow() + 1;
-        sheet.appendRow([barisTujuan - 2, idSurat, waktuDiterima, instansi, bukti, tglUpload, "", ""]);
+        var barisTujuan = Math.max(3, sheet.getLastRow() + 1);
+        sheet.appendRow([barisTujuan - 2, idSurat, waktuDiterima, instansi, kegiatan, buktiSheet, toPlainTextSheetDate(tglUpload), ""]);
+        rapikanKolomTanggalMedpart(sheet);
      }
      
      clearWizardMessages(chatId, userId);
      
-     var balasan = "🤝 *MEDPART BARU TERCATAT!* 🤝\n_(via Menu Interaktif 🍀)_\n\n*ID:* " + idSurat + "\n*Instansi:* " + instansi + "\n*Tanggal Upload:* " + formatTanggalInput(tglUpload) + "\n*Bukti/Link:* " + bukti;
+     var balasan = "🤝 *MEDPART BARU TERCATAT!* 🤝\n_(via Menu Interaktif 🍀)_\n\n*ID:* " + idSurat + "\n*Pengirim:* " + escapeMarkdownText(instansi) + "\n*Kegiatan:* " + escapeMarkdownText(kegiatan) + "\n*Tanggal Upload:* " + formatTanggalInput(tglUpload) + "\n*Bukti/Link:* " + escapeMarkdownText(bukti);
      kirimMenuUtama(chatId, balasan);
      if (grupChatId && String(chatId) !== String(grupChatId)) {
        sendMessage(grupChatId, balasan);
@@ -2781,7 +2923,7 @@ function processWizardInput(chatId, userId, text, userMessageId, msg) {
      
      var barisTujuan = sheetSp.getLastRow() + 1;
      var nomorUrut = barisTujuan > 2 ? barisTujuan - 2 : 1; 
-     sheetSp.appendRow([nomorUrut, idSp, smartTitleCase(instansi), tgl, syarat, benefit, mou]);
+     sheetSp.appendRow([nomorUrut, idSp, smartTitleCase(instansi), toPlainTextSheetDate(tgl), syarat, benefit, mou]);
      
      clearWizardMessages(chatId, userId);
      
@@ -2886,7 +3028,7 @@ function processWizardInput(chatId, userId, text, userMessageId, msg) {
      var nomorUrut = lr < 2 ? 1 : lr;
      
      // Asumsi urutan kolom: NO, ID Partner, Instansi, Persyaratan, Benefit, Mulai, Selesai, MoU
-     sheetPt.appendRow([nomorUrut, idPrt, smartTitleCase(instansi), syarat, benefit, mulai, selesai, mou]);
+     sheetPt.appendRow([nomorUrut, idPrt, smartTitleCase(instansi), syarat, benefit, toPlainTextSheetDate(mulai), toPlainTextSheetDate(selesai), mou]);
      
      clearWizardMessages(chatId, userId);
      
@@ -2934,14 +3076,38 @@ function processWizardInput(chatId, userId, text, userMessageId, msg) {
      }
      
      if (baris !== -1) {
-         if (type === "EDIT_MP_SYARAT") {
-             sheetMp.getRange(baris, 7).setValue(text);
+         if (type === "EDIT_MP_INSTANSI") {
+             var valInst = text.trim();
+             sheetMp.getRange(baris, 4).setValue(valInst);
+             clearWizardMessages(chatId, userId);
+             kirimMenuUtama(chatId, "✅ Pengirim/Instansi untuk *" + idMp + "* berhasil diubah menjadi: *" + escapeMarkdownText(valInst) + "*");
+         } else if (type === "EDIT_MP_KEGIATAN") {
+             var valKeg = text.trim();
+             sheetMp.getRange(baris, 5).setValue(valKeg);
+             clearWizardMessages(chatId, userId);
+             kirimMenuUtama(chatId, "✅ Nama Kegiatan untuk *" + idMp + "* berhasil diubah menjadi: *" + escapeMarkdownText(valKeg) + "*");
+         } else if (type === "EDIT_MP_SYARAT") {
+             var valBukti = text;
+             if (msg && msg.document) {
+                 sendMessage(chatId, "⏳ Mengunggah Dokumen Bukti ke GDrive (Folder: Medpart)...");
+                 var urlDriveDoc = simpanFileKeDrive(msg.document.file_id, "Medpart");
+                 if (urlDriveDoc) valBukti = urlDriveDoc;
+             } else if (msg && msg.photo && msg.photo.length > 0) {
+                 sendMessage(chatId, "⏳ Mengunggah Foto Bukti ke GDrive (Folder: Medpart)...");
+                 var urlDrivePhoto = simpanFileKeDrive(msg.photo[msg.photo.length - 1].file_id, "Medpart");
+                 if (urlDrivePhoto) valBukti = urlDrivePhoto;
+             }
+             sheetMp.getRange(baris, 6).setValue(valBukti);
              clearWizardMessages(chatId, userId);
              kirimMenuUtama(chatId, "✅ Syarat untuk *" + idMp + "* berhasil diupdate!");
          } else if (type === "EDIT_MP_TGL") {
-             sheetMp.getRange(baris, 6).setValue(text);
+             var valTgl = String(normalizeTanggalString(text)).trim();
+             var cellTgl = sheetMp.getRange(baris, 7);
+             cellTgl.setNumberFormat("@");
+             cellTgl.setValue(valTgl);
+             rapikanKolomTanggalMedpart(sheetMp);
              clearWizardMessages(chatId, userId);
-             kirimMenuUtama(chatId, "✅ Tanggal upload untuk *" + idMp + "* berhasil diubah menjadi: " + text);
+             kirimMenuUtama(chatId, "✅ Tanggal upload untuk *" + idMp + "* berhasil diubah menjadi: " + escapeMarkdownText(valTgl));
          } else if (type === "EDIT_MP_POSTER") {
              if (!msg || !msg.photo) {
                 var errId = sendMessage(chatId, "❌ Itu bukan foto! Silakan ulangi dengan mengirimkan foto gambar.");
@@ -2985,23 +3151,26 @@ function processWizardInput(chatId, userId, text, userMessageId, msg) {
      
      if (baris !== -1) {
          if (field === "PENGIRIM") {
-             sheet.getRange(baris, 4).setValue(text.toUpperCase());
+             var val = text.trim().toUpperCase();
+             sheet.getRange(baris, 4).setValue(val);
              clearWizardMessages(chatId, userId);
-             kirimMenuUtama(chatId, "✅ Pengirim untuk *" + idSurat + "* berhasil diubah menjadi: *" + text.toUpperCase() + "*");
+             kirimMenuUtama(chatId, "✅ Pengirim untuk *" + idSurat + "* berhasil diubah menjadi: *" + escapeMarkdownText(val) + "*");
          } else if (field === "KEGIATAN") {
-             sheet.getRange(baris, 5).setValue(smartTitleCase(text));
+             var val = text.trim();
+             sheet.getRange(baris, 5).setValue(val);
              clearWizardMessages(chatId, userId);
-             kirimMenuUtama(chatId, "✅ Kegiatan untuk *" + idSurat + "* berhasil diubah menjadi: *" + smartTitleCase(text) + "*");
+             kirimMenuUtama(chatId, "✅ Kegiatan untuk *" + idSurat + "* berhasil diubah menjadi: *" + escapeMarkdownText(val) + "*");
          } else if (field === "WAKTU") {
              var val = text;
              if(val.toLowerCase().indexOf("wib") === -1) val += " WIB";
              sheet.getRange(baris, 6).setValue(val);
              clearWizardMessages(chatId, userId);
-             kirimMenuUtama(chatId, "✅ Waktu untuk *" + idSurat + "* berhasil diubah menjadi: *" + val + "*");
+             kirimMenuUtama(chatId, "✅ Waktu untuk *" + idSurat + "* berhasil diubah menjadi: *" + escapeMarkdownText(val) + "*");
          } else if (field === "LOKASI") {
-             sheet.getRange(baris, 7).setValue(smartTitleCase(text));
+             var val = text.trim();
+             sheet.getRange(baris, 7).setValue(val);
              clearWizardMessages(chatId, userId);
-             kirimMenuUtama(chatId, "✅ Lokasi untuk *" + idSurat + "* berhasil diubah menjadi: *" + smartTitleCase(text) + "*");
+             kirimMenuUtama(chatId, "✅ Lokasi untuk *" + idSurat + "* berhasil diubah menjadi: *" + escapeMarkdownText(val) + "*");
          }
      } else {
          kirimMenuUtama(chatId, "❌ Gagal: Data " + idSurat + " tidak ditemukan!");
@@ -3018,10 +3187,12 @@ function processWizardInput(chatId, userId, text, userMessageId, msg) {
      var dataAll = sheetMp.getDataRange().getValues();
      var found = false;
      var instansi = "";
+     var kegiatan = "";
      for (var i = 0; i < dataAll.length; i++) {
          if (dataAll[i][1] === idMp) { 
              found = true; 
              instansi = dataAll[i][3];
+             kegiatan = dataAll[i][4] ? String(dataAll[i][4]).trim() : "";
              break; 
          }
      }
@@ -3034,13 +3205,9 @@ function processWizardInput(chatId, userId, text, userMessageId, msg) {
      
      cache.remove("WIZ_STATE_" + userId);
      
-     var textBaru = "⚙️ *Edit Media Partner " + idMp + " (" + instansi + ")*\n\nBagian mana yang ingin kamu lengkapi atau ubah?";
-     var keyboard = { inline_keyboard: [
-         [{ text: "🔗 Syarat (Link Bukti)", callback_data: "MEDPART_SET|SYARAT|" + idMp }],
-         [{ text: "🖼️ Poster Final (Foto)", callback_data: "MEDPART_SET|POSTER|" + idMp }],
-         [{ text: "🗓️ Tanggal Upload", callback_data: "MEDPART_SET|TGL|" + idMp }],
-         [{ text: "🔙 Batal", callback_data: "MENU_UPDATE_MEDPART_LIST" }]
-     ]};
+     var labelMp = kegiatan ? (escapeMarkdownText(instansi) + " - " + escapeMarkdownText(kegiatan)) : escapeMarkdownText(instansi);
+     var textBaru = "⚙️ *Edit Media Partner " + idMp + " (" + labelMp + ")*\n\nBagian mana yang ingin kamu lengkapi atau ubah?";
+     var keyboard = buildMedpartEditKeyboard(idMp, "MENU_UPDATE_MEDPART_LIST");
      
      clearWizardMessages(chatId, userId);
      var botMsgId = sendMessage(chatId, textBaru, keyboard);
@@ -3195,9 +3362,13 @@ function processWizardInput(chatId, userId, text, userMessageId, msg) {
                  var wktStr = wktFormat ? wktFormat : "(Waktu Kosong)";
                  
                  info = "*" + (dataAll[i][3] || "Tanpa Pengirim") + "* - " + keg + "\n🗓️ *Waktu:* " + wktStr + "\n📍 *Lokasi:* " + lok;
-             } else if (modul === "MEDPART" || modul === "SPONSOR" || modul === "PARTNER") {
-                 info = dataAll[i][3] ? String(dataAll[i][3]).trim() : "(Data Kosong)"; // Instansi ada di index 3 untuk MP/SP/PT yang format kolomnya sudah diperbaiki
-                 if (modul !== "MEDPART" && !dataAll[i][3] && dataAll[i][2]) {
+             } else if (modul === "MEDPART") {
+                 var pengirimMp = dataAll[i][3] ? String(dataAll[i][3]).trim() : "(Data Kosong)";
+                 var kegMp = dataAll[i][4] ? String(dataAll[i][4]).trim() : "";
+                 info = kegMp ? ("*" + escapeMarkdownText(pengirimMp) + "* - " + escapeMarkdownText(kegMp)) : escapeMarkdownText(pengirimMp);
+             } else if (modul === "SPONSOR" || modul === "PARTNER") {
+                 info = dataAll[i][3] ? String(dataAll[i][3]).trim() : "(Data Kosong)"; // Instansi ada di index 3 untuk SP/PT yang format kolomnya sudah diperbaiki
+                 if (!dataAll[i][3] && dataAll[i][2]) {
                      info = String(dataAll[i][2]).trim(); // Fallback untuk SP/PT kalau kolomnya lama
                  }
              }
@@ -3297,6 +3468,7 @@ function handleInfoCommand(chatId, inputInfo) {
       var sheetMp = SpreadsheetApp.openById(sheetId).getSheetByName("Medpart") || SpreadsheetApp.openById(sheetId).getSheetByName("Media Partner");
       if (!sheetMp) return sendMessage(chatId, "❌ Sheet Medpart tidak ditemukan!");
       
+      rapikanKolomTanggalMedpart(sheetMp);
       var dataMp = sheetMp.getDataRange().getValues();
       var listMp = "";
       var countMp = 0;
@@ -3304,15 +3476,18 @@ function handleInfoCommand(chatId, inputInfo) {
       for (var i = 2; i < dataMp.length; i++) {
          var idMp = dataMp[i][1];
          var instansi = dataMp[i][3];
-         var tglUpload = dataMp[i][5];
-         var bukti = dataMp[i][6] ? String(dataMp[i][6]).trim() : "";
+         var kegiatan = dataMp[i][4] ? String(dataMp[i][4]).trim() : "";
+         var bukti = dataMp[i][5] ? String(dataMp[i][5]).trim() : "";
+         var tglUploadRaw = dataMp[i][6];
+         var tglUpload = tglUploadRaw ? normalizeTanggalString(tglUploadRaw) : "-";
          var poster = dataMp[i][7] ? String(dataMp[i][7]).trim() : "";
          
          if (idMp && instansi) {
-            var statusSyarat = (bukti !== "" && bukti.toLowerCase() !== "menunggu syarat" && bukti.toLowerCase() !== "belum ada") ? "✅ Tersedia" : "❌ Menunggu Syarat";
+            var statusSyarat = (bukti !== "" && bukti.toLowerCase() !== "menunggu syarat" && bukti.toLowerCase() !== "belum ada" && bukti !== "❌ Belum ada data") ? "✅ Tersedia" : "❌ Menunggu Syarat";
             var statusPoster = (poster !== "") ? "✅ Tersedia" : "❌ Belum Ada";
+            var labelMp = kegiatan ? (escapeMarkdownText(instansi) + " - " + escapeMarkdownText(kegiatan)) : escapeMarkdownText(instansi);
             
-            listMp += "🔹 *" + idMp + "* (" + instansi + ")\n🗓️ Tgl Upload: " + tglUpload + "\n📌 Syarat: " + statusSyarat + "\n📌 Poster: " + statusPoster + "\n\n";
+            listMp += "🔹 *" + idMp + "* (" + labelMp + ")\n🗓️ Tgl Upload: " + escapeMarkdownText(String(tglUpload)) + "\n📌 Syarat: " + statusSyarat + "\n📌 Poster: " + statusPoster + "\n\n";
             countMp++;
          }
       }
